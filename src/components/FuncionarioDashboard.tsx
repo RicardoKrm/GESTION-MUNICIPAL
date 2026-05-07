@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Ticket } from '../types';
 import { differenceInBusinessDays, differenceInHours, parseISO } from 'date-fns';
-import { Clock, AlertTriangle, ArrowRightCircle, CheckCircle2 } from 'lucide-react';
+import { Clock, AlertTriangle, ArrowRightCircle, CheckCircle2, Bell, FileImage, Download } from 'lucide-react';
 
 export default function FuncionarioDashboard() {
   const { currentUser, users, tickets, departamentos, vecinos, acciones, updateTicketStatus, createTicket, logout } = useStore();
@@ -133,8 +133,8 @@ export default function FuncionarioDashboard() {
             <div className="w-4 h-4 bg-[#002d5d] rounded-full"></div>
           </div>
           <div>
-            <h1 className="text-lg font-bold leading-tight">SIGM</h1>
-            <p className="text-[10px] uppercase tracking-wider opacity-60 font-medium">Gestión Municipal</p>
+            <h1 className="text-lg font-bold leading-tight">Gestión Municipal</h1>
+            <p className="text-[10px] uppercase tracking-wider opacity-60 font-medium">Portal Funcionario</p>
           </div>
         </div>
         <nav className="flex-1 p-4 space-y-1">
@@ -165,17 +165,21 @@ export default function FuncionarioDashboard() {
       <main className="flex-1 flex flex-col bg-[#f0f2f5] overflow-hidden">
         <header className="h-14 bg-white border-b flex items-center justify-between px-6 shadow-sm shrink-0">
           <div className="flex items-center gap-4">
-            <span className="text-sm text-slate-500 font-medium hidden sm:inline">Estado del Sistema: <span className="text-emerald-600">● Operacional</span></span>
+            <span className="text-sm text-slate-500 font-medium hidden sm:inline">Estado del Sistema: <span className="text-emerald-600 font-bold">● Operacional</span></span>
             <div className="h-4 w-[1px] bg-slate-200 hidden sm:block"></div>
             <span className="text-xs text-slate-400 font-mono hidden sm:inline">Depto: {myDept?.nombre}</span>
           </div>
           <div className="flex items-center gap-3">
+             <div className="relative p-2 rounded-full hover:bg-slate-100 cursor-pointer mr-2">
+               <Bell className="w-5 h-5 text-slate-500" />
+               {myTickets.filter(t => getHealthScore(t) > 0.85).length > 0 && <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 border-2 border-white rounded-full animate-pulse"></span>}
+             </div>
             <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 border border-blue-100 rounded text-blue-700 text-xs font-medium">
-              🔑 Autenticado
+              🔑 ClaveÚnica Inst.
             </div>
             <button 
               onClick={logout}
-              className="px-3 py-1.5 rounded-md hover:bg-slate-100 text-slate-600 text-xs font-medium transition-colors"
+              className="px-3 py-1.5 rounded-md hover:bg-slate-100 text-slate-600 text-xs font-medium transition-colors border border-transparent hover:border-slate-200"
             >
               Salir
             </button>
@@ -374,6 +378,22 @@ export default function FuncionarioDashboard() {
                      <div><span className="font-bold uppercase tracking-tight text-slate-400">Vence (SLA):</span> {new Date(selectedTicket.sla_deadline).toLocaleString()}</div>
                      <div><span className="font-bold uppercase tracking-tight text-slate-400">Solicitante ID:</span> {selectedTicket.vecino_id}</div>
                      <div><span className="font-bold uppercase tracking-tight text-slate-400">Derivaciones (Hops):</span> <span className={selectedTicket.hops >= 2 ? "text-red-500 font-bold" : "text-slate-700 font-bold"}>{selectedTicket.hops}/3</span></div>
+                  </div>
+                  
+                  <div className="mt-4 pt-4 border-t border-slate-200">
+                    <span className="font-bold uppercase tracking-tight text-slate-400 text-xs mb-2 block">Evidencia Adjunta:</span>
+                    <div className="flex gap-3">
+                       <div className="w-20 h-20 bg-slate-200 rounded-lg overflow-hidden relative group cursor-pointer border border-slate-300">
+                          <img src="https://i.pinimg.com/736x/8c/98/99/8c98994518b575bfd8c949e91d20548b.jpg" className="w-full h-full object-cover" alt="Evidencia 1" />
+                          <div className="absolute inset-0 bg-black/50 hidden group-hover:flex items-center justify-center transition-all">
+                             <Download className="w-5 h-5 text-white" />
+                          </div>
+                       </div>
+                       <div className="w-20 h-20 bg-slate-100 rounded-lg flex flex-col items-center justify-center border border-slate-300 border-dashed text-slate-400 text-[10px] font-medium font-mono group cursor-pointer hover:bg-slate-200 hover:text-slate-600 transition-colors">
+                          <FileImage className="w-6 h-6 mb-1 opacity-50 group-hover:opacity-100" />
+                          PDF
+                       </div>
+                    </div>
                   </div>
                 </div>
 

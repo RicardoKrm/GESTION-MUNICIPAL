@@ -47,10 +47,38 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const createTicket = (ticketData: Omit<Ticket, 'id' | 'uuid' | 'created_at' | 'hops'>) => {
     const newId = `T-${Math.floor(Math.random() * 10000) + 1000}`;
     const newUuid = `uuid-${Date.now()}`;
+    
+    // Simular IA de clasificación automática si el ticket viene de vecinos o bots (por defecto dept-1 o vacío)
+    let assignedDept = ticketData.current_dept_id;
+    let autoAssigned = false;
+    let priority = ticketData.prioridad;
+
+    if (ticketData.vecino_id && !ticketData.titulo.includes('[ALCALDÍA]')) {
+       const content = (ticketData.titulo + ' ' + ticketData.descripcion).toLowerCase();
+       if (content.match(/bache|calle|hoyo|pavimento|vereda|transito|semaforo|choque/)) {
+          assignedDept = 'dept-2'; // Tránsito y Obras
+          autoAssigned = true;
+       } else if (content.match(/basura|microbasural|limpieza|arbol|ramas|plaza|parque/)) {
+          assignedDept = 'dept-3'; // Aseo y Ornato
+          autoAssigned = true;
+       } else if (content.match(/legal|demanda|abogado|ley/)) {
+          assignedDept = 'dept-4'; // Jurídico
+          autoAssigned = true;
+       }
+       
+       if (content.match(/urgente|peligro|emergencia|grave/)) {
+          priority = 1;
+       } else if (content.match(/importante|pronto|rapido/)) {
+          priority = 2;
+       }
+    }
+
     const newTicket: Ticket = {
       ...ticketData,
       id: newId,
       uuid: newUuid,
+      current_dept_id: assignedDept,
+      prioridad: priority,
       created_at: new Date().toISOString(),
       hops: 0
     };
@@ -62,9 +90,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         id: `acc-${Date.now()}`,
         ticket_id: newUuid,
         usuario_id: currentUser.id,
-        accion: 'creacion',
+        accion: autoAssigned ? 'derivacion' : 'creacion',
         estado_nuevo: ticketData.estado,
-        comentario: 'Ticket creado en ventanilla virtual',
+        comentario: autoAssigned ? `[AUTO-ASIGNACIÓN IA] Ticket derivado automáticamente al depto asignado. Detalles del flujo: ${ticketData.descripcion}` : 'Ticket creado',
         timestamp: new Date().toISOString()
       }]);
     }

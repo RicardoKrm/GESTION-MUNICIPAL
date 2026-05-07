@@ -1,340 +1,240 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useStore } from '../lib/StoreContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { differenceInHours, parseISO, startOfWeek, endOfWeek, isWithinInterval } from 'date-fns';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { AlertTriangle, TrendingUp, Users, FileText, Activity } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid } from 'recharts';
+import { AlertTriangle, TrendingUp, Users, FileText, Activity, ExternalLink, PenTool, Bell, MessageSquare, CheckCircle2, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Ticket } from '../types';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+});
 
 export default function AlcaldeDashboard() {
-  const { tickets, departamentos, logout } = useStore();
-  const [view, setView] = useState('dashboard');
+  const { tickets, departamentos, vecinos, acciones, users, createTicket, updateTicketStatus, logout } = useStore();
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [interventionNote, setInterventionNote] = useState('');
+  const [isInterventionOpen, setIsInterventionOpen] = useState(false);
 
-  const exportToCSV = () => {
-    const headers = ['ID', 'UUID', 'Título', 'Descripción', 'Estado', 'Prioridad', 'Departamento ID', 'Creado', 'Vence (SLA)'];
-    const rows = tickets.map(t => [
-      t.id,
-      t.uuid,
-      `"${t.titulo.replace(/"/g, '""')}"`,
-      `"${t.descripcion.replace(/"/g, '""')}"`,
-      t.estado,
-      t.prioridad,
-      t.current_dept_id,
-      new Date(t.created_at).toISOString(),
-      new Date(t.sla_deadline).toISOString()
-    ]);
-    
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `sigm_tickets_export_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleIntervention = (e: React.FormEvent) => {
+    e.preventDefault();
+    if(selectedTicket) {
+      updateTicketStatus(selectedTicket.uuid, selectedTicket.estado, `[INTERVENCIÓN ALCALDÍA]: ${interventionNote}`);
+      setInterventionNote('');
+      setIsInterventionOpen(false);
+      alert('Instrucción registrada en el historial del ticket.');
+    }
   };
 
   const activeTickets = tickets.filter(t => t.estado !== 'cerrado');
   const criticalTickets = activeTickets.filter(t => t.prioridad === 1);
-  const resolvedThisWeek = tickets.filter(t => {
-      const d = parseISO(t.created_at);
-      const start = startOfWeek(new Date());
-      const end = endOfWeek(new Date());
-      return t.estado === 'resuelto' && isWithinInterval(d, { start, end });
-  });
+  const resolvedTickets = tickets.filter(t => t.estado === 'resuelto' || t.estado === 'cerrado');
 
-  const getHealthScore = (ticket: any) => {
-    const start = parseISO(ticket.created_at);
-    const deadline = parseISO(ticket.sla_deadline);
-    const totalHours = differenceInHours(deadline, start) || 1;
-    const hoursElapsed = differenceInHours(new Date(), start);
-    const timeRatio = Math.max(0, Math.min(1, hoursElapsed / totalHours));
-    const hopRatio = Math.min(1, ticket.hops / 3);
-    return (timeRatio * 0.7) + (hopRatio * 0.3);
-  };
-
-  const highRiskTickets = activeTickets.filter(t => getHealthScore(t) > 0.85);
-
-  // Group tickets by dept for chart
   const deptData = departamentos.map(dept => {
-      const count = activeTickets.filter(t => t.current_dept_id === dept.id).length;
-      return { name: dept.nombre.substring(0, 15), count };
+      const deptoTickets = tickets.filter(t => t.current_dept_id === dept.id);
+      const resueltos = deptoTickets.filter(t => t.estado === 'resuelto' || t.estado === 'cerrado').length;
+      const pendientes = deptoTickets.length - resueltos;
+      return { 
+        name: dept.nombre.split(' ')[0], 
+        resueltos: resueltos,
+        pendientes: pendientes 
+      };
   });
-
-  // Mock Briefing (Would be LLM generated)
-  const iaBriefing = {
-     date: new Date().toLocaleDateString(),
-     content: `Alcalde, durante esta semana se han ingresado ${tickets.length} solicitudes. Existe una tendencia al alza (35%+) en reportes sobre "Baches y Estado de Calles" concentrados en el sector norte. El departamento de Tránsito se encuentra con sobrecarga operativa con un índice de retardo SLA del 12%. Se sugiere derivar equipo de apoyo temporal.`,
-     sentiment: 'critical',
-     keywords: ['Baches', 'Tránsito', 'Sobrecarga']
-  };
 
   return (
-    <div className="flex h-screen w-full bg-[#f4f7f9] font-sans overflow-hidden">
-      {/* Sidebar */}
-      <aside className="w-64 bg-[#002d5d] text-white flex flex-col border-r border-[#001f3f] shrink-0">
-        <div className="p-6 flex items-center gap-3 border-b border-[#ffffff1a]">
-          <div className="w-8 h-8 bg-white rounded-md flex items-center justify-center">
-            <div className="w-4 h-4 bg-[#002d5d] rounded-full"></div>
-          </div>
-          <div>
-            <h1 className="text-lg font-bold leading-tight">SIGM</h1>
-            <p className="text-[10px] uppercase tracking-wider opacity-60 font-medium">Gestión Municipal</p>
-          </div>
-        </div>
-        <nav className="flex-1 p-4 space-y-1">
-          <button onClick={() => setView('dashboard')} className={`w-full text-left flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${view === 'dashboard' ? 'bg-white/10 font-bold' : 'hover:bg-white/5 opacity-80'}`}>
-            <Activity className="w-4 h-4" /> Dashboard Principal
-          </button>
-          <button onClick={() => setView('oficina')} className={`w-full text-left flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${view === 'oficina' ? 'bg-white/10 font-bold' : 'hover:bg-white/5 opacity-80'}`}>
-            <FileText className="w-4 h-4" /> Oficina de Partes
-          </button>
-          <button onClick={() => setView('tickets')} className={`w-full text-left flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${view === 'tickets' ? 'bg-white/10 font-bold' : 'hover:bg-white/5 opacity-80'}`}>
-            <AlertTriangle className="w-4 h-4" /> Gestión de Tickets
-          </button>
-          <div className="pt-4 pb-2 px-3 text-[10px] uppercase font-bold text-white/40 tracking-widest">Auditoría & Normativa</div>
-          <button onClick={() => setView('transparencia')} className={`w-full text-left flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${view === 'transparencia' ? 'bg-white/10 font-bold' : 'hover:bg-white/5 opacity-80'}`}>
-            <Users className="w-4 h-4" /> Transparencia Activa
-          </button>
-        </nav>
-        <div className="p-4 mt-auto bg-[#001f3f] border-t border-[#ffffff1a] flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-slate-500 border border-white/20 overflow-hidden flex items-center justify-center">
-            <Users className="w-4 h-4 text-white" />
-          </div>
-          <div className="flex-1">
-            <p className="text-xs font-semibold leading-none">Alcaldía Santiago</p>
-            <p className="text-[10px] text-white/50 mt-1 uppercase tracking-tighter">Admin Senior GovTech</p>
-          </div>
-        </div>
-      </aside>
-
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col bg-[#f0f2f5] overflow-hidden">
+    <div className="flex flex-col min-h-screen w-full bg-[#f8fafc] font-sans overflow-y-auto">
         {/* Top Header */}
-        <header className="h-14 bg-white border-b flex items-center justify-between px-6 shadow-sm shrink-0">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shadow-sm shrink-0 z-10 sticky top-0">
           <div className="flex items-center gap-4">
-            <span className="text-sm text-slate-500 font-medium">Estado del Sistema: <span className="text-emerald-600">● Operacional</span></span>
-            <div className="h-4 w-[1px] bg-slate-200"></div>
-            <span className="text-xs text-slate-400 font-mono">Multi-tenant ID: mun-scl-001</span>
+            <h1 className="text-lg font-extrabold text-slate-800 tracking-tight">Dashboard Ejecutivo (Alcalde)</h1>
+            <Badge variant="secondary" className="bg-slate-100 text-slate-600 font-bold uppercase text-[10px] tracking-wider border border-slate-200">
+              MULTI-TENANT: REGIÓN METROPOLITANA
+            </Badge>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 border border-blue-100 rounded text-blue-700 text-xs font-medium">
-              🔑 Autenticado vía <strong>ClaveÚnica</strong>
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] font-extrabold uppercase text-slate-500 tracking-widest hidden md:inline">HEALTH SCORE</span>
+              <div className="w-32 h-2.5 bg-slate-100 rounded-full overflow-hidden hidden md:block">
+                <div className="h-full bg-[#20c997] rounded-full" style={{ width: '88%' }}></div>
+              </div>
+              <span className="text-sm font-black text-[#20c997]">88%</span>
             </div>
-            <button 
-              onClick={logout}
-              className="px-3 py-1.5 rounded-md hover:bg-slate-100 text-slate-600 text-xs font-medium transition-colors"
+            <div 
+               title="Cerrar sesión" 
+               onClick={logout} 
+               className="w-8 h-8 rounded-full bg-slate-200 hover:bg-slate-300 transition-colors flex flex-col items-center justify-center font-bold text-slate-600 cursor-pointer text-xs"
             >
-              Salir
-            </button>
+              A
+            </div>
           </div>
         </header>
 
         {/* Content Section */}
-        {view === 'dashboard' && (
-        <div className="p-6 grid grid-cols-1 md:grid-cols-12 gap-6 flex-1 overflow-y-auto w-full">
+        <main className="flex-1 p-6 md:p-8">
           
-          {/* Left Column: Metrics & Summaries */}
-          <div className="md:col-span-8 flex flex-col gap-6">
+          <div className="max-w-[1400px] mx-auto space-y-6">
             
-            {/* KPI Bar */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-                <p className="text-xs text-slate-500 uppercase font-bold tracking-tight">Total Tickets</p>
-                <p className="text-2xl font-bold text-slate-800">{activeTickets.length}</p>
-                <p className="text-[10px] text-emerald-600 font-semibold">+4% esta semana</p>
-              </div>
-              <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-                <p className="text-xs text-slate-500 uppercase font-bold tracking-tight">Críticos (HS &gt; 0.85)</p>
-                <p className="text-2xl font-bold text-red-600">{highRiskTickets.length}</p>
-                <p className="text-[10px] text-red-500 font-semibold">Acción Requerida</p>
-              </div>
-              <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-                <p className="text-xs text-slate-500 uppercase font-bold tracking-tight">Prioridad Crítica</p>
-                <p className="text-2xl font-bold text-slate-800">{criticalTickets.length}</p>
-                <p className="text-[10px] text-slate-400 font-medium">Meta: 0</p>
-              </div>
-              <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-                <p className="text-xs text-slate-500 uppercase font-bold tracking-tight">Resueltos Semana</p>
-                <p className="text-2xl font-bold text-slate-800">{resolvedThisWeek.length}</p>
-                <p className="text-[10px] text-emerald-600 font-semibold">-12h prom</p>
-              </div>
-            </div>
-
-            {/* AI Morning Briefing (Claude 3.5 Insight) */}
-            <div className="bg-gradient-to-br from-[#002d5d] to-[#004a8f] text-white p-5 rounded-2xl shadow-lg relative overflow-hidden">
-              <div className="relative z-10">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-lg font-semibold flex items-center gap-2">
-                    ✨ Briefing Inteligente (IA)
-                    <span className="px-2 py-0.5 bg-blue-400/20 rounded text-[10px] uppercase font-bold tracking-widest border border-blue-300/30">Análisis RAG Activo</span>
-                  </h2>
-                  <span className="text-xs opacity-60 font-mono">Hoy, {iaBriefing.date}</span>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="bg-white/10 p-3 rounded-lg border border-white/10">
-                    <p className="text-[11px] font-bold uppercase text-blue-200 mb-1">Resumen del Estado</p>
-                    <p className="text-sm leading-snug">{iaBriefing.content}</p>
-                  </div>
-                  <div className="bg-white/10 p-3 rounded-lg border border-white/10">
-                    <p className="text-[11px] font-bold uppercase text-orange-200 mb-1">Riesgo Operativo</p>
-                    <p className="text-sm leading-snug">Dpto. Obras presenta 4 tickets con 'Anti-Peloteo' activo (3+ derivaciones). Escalamiento automático a Administrador Municipal.</p>
-                    <div className="flex flex-wrap gap-2 pt-3">
-                      {iaBriefing.keywords.map(k => (
-                        <span key={k} className="px-2 py-0.5 bg-slate-800/50 text-slate-200 rounded text-[10px] uppercase">{k}</span>
-                      ))}
+            {/* KPI Cards Row */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+               <div onClick={() => alert('Mostrando listado de todas las solicitudes...')} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 border-l-4 border-l-slate-200 cursor-pointer hover:shadow-md transition-all group">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest group-hover:text-slate-600 transition-colors">TOTAL SOLICITUDES INGRESADAS</p>
+                      <p className="text-3xl font-black text-slate-800 mt-2">{tickets.length}</p>
                     </div>
+                    <Activity className="text-slate-400 w-5 h-5 group-hover:text-slate-600"/>
                   </div>
-                </div>
-              </div>
-              <div className="absolute -right-8 -top-8 w-32 h-32 bg-white/5 rounded-full blur-3xl"></div>
-            </div>
+                  <p className="text-[11px] text-emerald-500 font-bold mt-4">+12% respecto al mes pasado</p>
+               </div>
 
-            {/* High Density Ticket Table */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-              <div className="px-4 py-3 border-b flex items-center justify-between">
-                <h3 className="text-sm font-bold text-slate-700 uppercase tracking-tight">Tickets Críticos (Zona Roja)</h3>
-                <div className="flex gap-2">
-                  <button className="px-2 py-1 text-[10px] border rounded bg-slate-50 hover:bg-slate-100 font-bold">FILTRAR</button>
-                  <button className="px-2 py-1 text-[10px] border rounded bg-slate-50 hover:bg-slate-100 font-bold uppercase" onClick={exportToCSV}>Exportar Auditoría</button>
-                </div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs whitespace-nowrap">
-                  <thead className="bg-slate-50 text-slate-500 uppercase text-[10px] font-bold sticky top-0">
-                    <tr>
-                      <th className="px-4 py-3">UUID/Hash</th>
-                      <th className="px-4 py-3">Departamento</th>
-                      <th className="px-4 py-3">Asunto</th>
-                      <th className="px-4 py-3">Health Score</th>
-                      <th className="px-4 py-3 text-center">Derivaciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {highRiskTickets.map(t => {
-                        const hs = getHealthScore(t);
-                        const dept = departamentos.find(d => d.id === t.current_dept_id);
-                        return (
-                          <tr key={t.uuid} className="hover:bg-slate-50">
-                            <td className="px-4 py-3 font-mono text-[9px] opacity-70">
-                              {t.id} <span className="text-emerald-500">✔</span>
-                            </td>
-                            <td className="px-4 py-3">{dept?.nombre}</td>
-                            <td className="px-4 py-3 font-medium truncate max-w-[200px]">{t.titulo}</td>
-                            <td className="px-4 py-3">
-                              <div className="flex items-center gap-2">
-                                <div className="w-24 h-1.5 bg-slate-100 rounded-full">
-                                  <div className="h-full bg-red-500 rounded-full" style={{ width: `${Math.min(100, hs * 100)}%` }}></div>
-                                </div>
-                                <span className="font-bold text-red-600">{(hs).toFixed(2)}</span>
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-center font-bold text-slate-700">{t.hops}/3</td>
-                          </tr>
-                        );
-                    })}
-                    {highRiskTickets.length === 0 && (
-                      <tr><td colSpan={5} className="px-4 py-6 text-center text-slate-500 bg-slate-50/50">Todos los tickets bajo control.</td></tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+               <div onClick={() => alert('Filtrando pendientes y atrasadas...')} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 border-l-4 border-l-red-500 cursor-pointer hover:shadow-md transition-all group">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest group-hover:text-red-500 transition-colors">PENDIENTES Y ATRASADAS</p>
+                      <p className="text-3xl font-black text-slate-800 mt-2">{activeTickets.length}</p>
+                    </div>
+                    <Clock className="text-red-500 w-5 h-5"/>
+                  </div>
+                  <p className="text-[11px] text-red-500 font-bold mt-4">{criticalTickets.length} requieren atención Inmediata (Anti-Peloteo)</p>
+               </div>
 
-          {/* Right Column: Maps & Perf */}
-          <div className="md:col-span-4 flex flex-col gap-6">
-            
-            {/* Spatial Health Heatmap (PostGIS Concept) */}
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-              <h3 className="text-sm font-bold text-slate-700 uppercase tracking-tight mb-4">Inteligencia Territorial</h3>
-              <div className="aspect-square bg-slate-50 rounded-lg border border-dashed border-slate-300 relative flex items-center justify-center overflow-hidden">
-                <div className="absolute w-full h-full opacity-20 pointer-events-none">
-                   <div className="absolute top-10 left-10 w-24 h-24 bg-red-500 blur-2xl rounded-full"></div>
-                   <div className="absolute bottom-20 right-10 w-32 h-32 bg-orange-400 blur-3xl rounded-full"></div>
-                   <div className="absolute top-40 right-40 w-16 h-16 bg-red-600 blur-xl rounded-full"></div>
-                </div>
-                <div className="relative flex flex-col items-center gap-2">
-                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest text-center px-4">Mapa de calor simulado (PostGIS)</p>
-                   <div className="flex gap-1">
-                     <div className="w-2 h-2 rounded-full bg-red-500"></div>
-                     <div className="w-2 h-2 rounded-full bg-orange-500"></div>
-                     <div className="w-2 h-2 rounded-full bg-slate-300"></div>
-                   </div>
-                </div>
-              </div>
-              <div className="mt-4 space-y-2">
-                <div className="flex justify-between text-[11px]">
-                  <span className="text-slate-500">Cluster Crítico A:</span>
-                  <span className="font-bold">Barrio Bellas Artes</span>
-                </div>
-                <div className="flex justify-between text-[11px]">
-                  <span className="text-slate-500">Nivel de Severidad:</span>
-                  <span className="text-red-600 font-bold">MUY ALTO</span>
-                </div>
-              </div>
-            </div>
+               <div onClick={() => alert('Reporte de resolutividad en camino...')} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 border-l-4 border-l-emerald-500 cursor-pointer hover:shadow-md transition-all group">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest group-hover:text-emerald-500 transition-colors">CASOS RESUELTOS</p>
+                      <p className="text-3xl font-black text-slate-800 mt-2">{resolvedTickets.length}</p>
+                    </div>
+                    <CheckCircle2 className="text-emerald-500 w-5 h-5"/>
+                  </div>
+                  <p className="text-[11px] text-emerald-500 font-bold mt-4">Efectividad general: {((resolvedTickets.length / (tickets.length || 1)) * 100).toFixed(1)}%</p>
+               </div>
 
-            {/* Department Performance */}
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex flex-col relative h-[250px]">
-              <h3 className="text-sm font-bold text-slate-700 uppercase tracking-tight mb-4">Carga Operativa</h3>
-              <div className="flex-1 w-full relative">
-                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={deptData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-                    <XAxis dataKey="name" fontSize={10} tickLine={false} axisLine={false} />
-                    <YAxis fontSize={10} tickLine={false} axisLine={false} />
-                    <Tooltip cursor={{fill: 'transparent'}} contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}/>
-                    <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                      {deptData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.count > 5 ? '#f43f5e' : '#3b82f6'} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-            
-            {/* Sentiment Analysis Signal */}
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-               <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight mb-3">Sentiment Analysis Ciudadano</p>
-               <div className="flex items-center gap-4">
-                 <div className="text-center">
-                   <div className="text-lg">😠</div>
-                   <p className="text-[9px] font-bold">22%</p>
-                 </div>
-                 <div className="text-center">
-                   <div className="text-lg">😐</div>
-                   <p className="text-[9px] font-bold">56%</p>
-                 </div>
-                 <div className="text-center">
-                   <div className="text-lg">😊</div>
-                   <p className="text-[9px] font-bold">22%</p>
-                 </div>
-                 <div className="flex-1">
-                    <p className="text-[10px] leading-tight text-slate-500 italic">"Grave tendencia negativa en reportes de estado de calles. Aumento sostenido de frustración ciudadana."</p>
-                 </div>
+               <div onClick={() => alert('Mostrando listado de re-derivaciones múltiples...')} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200 border-l-4 border-l-orange-500 cursor-pointer hover:shadow-md transition-all group">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="text-[10px] text-slate-400 font-extrabold uppercase tracking-widest group-hover:text-orange-500 transition-colors">ALERTAS ANTI-PELOTEO</p>
+                      <p className="text-3xl font-black text-slate-800 mt-2">{tickets.filter(t => t.hops >= 3).length}</p>
+                    </div>
+                    <AlertTriangle className="text-orange-500 w-5 h-5"/>
+                  </div>
+                  <p className="text-[11px] text-orange-500 font-bold mt-4">Tickets re-derivados múltiples veces</p>
                </div>
             </div>
 
-          </div>
-        </div>
-        )}
+            {/* Main Dashboard Rows */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              
+              {/* Left Column */}
+              <div className="lg:col-span-8 flex flex-col gap-6">
+                 
+                 {/* Map Panel */}
+                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col h-[380px] overflow-hidden relative">
+                    <div className="absolute top-4 left-4 z-[400] bg-white/90 backdrop-blur-sm rounded-md shadow px-3 py-1.5 border border-slate-200">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-[#2f3640]">VISTA SATELITAL: INCIDENCIAS</span>
+                    </div>
+                    <div className="flex-1 w-full relative z-0">
+                       <MapContainer center={[-33.42, -70.60]} zoom={11} style={{ width: '100%', height: '100%' }} zoomControl={false}>
+                          <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" attribution='&copy; OpenStreetMap' />
+                          <Marker position={[-33.42, -70.60]}>
+                            <Popup>Zona caliente detectada (Semáforos).</Popup>
+                          </Marker>
+                       </MapContainer>
+                    </div>
+                    <div className="p-4 border-t border-slate-200 bg-white z-[400]">
+                       <p className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1">ZONA CALIENTE: SECTOR NORTE</p>
+                       <p className="text-sm font-semibold text-slate-800">Incremento de reclamos lumínicos en los últimos 45 min.</p>
+                    </div>
+                 </div>
 
-        {view !== 'dashboard' && (
-          <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
-             <div className="w-16 h-16 bg-slate-200 rounded-2xl flex items-center justify-center mb-4 text-slate-400">
-                <AlertTriangle className="w-8 h-8" />
-             </div>
-             <h2 className="text-xl font-bold text-slate-700 uppercase tracking-tight">Módulo en Desarrollo</h2>
-             <p className="text-slate-500 mt-2 max-w-sm text-sm">Este módulo de acceso exclusivo para la alcaldía se encuentra en fase de integración con los sistemas centrales. Próximamente disponible.</p>
-             <button onClick={() => setView('dashboard')} className="mt-6 text-sm font-bold text-blue-600 hover:text-blue-800">
-                ← Volver al Dashboard Principal
-             </button>
+                 {/* Bar Chart Panel */}
+                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col h-[320px]">
+                    <h3 className="text-base font-extrabold text-[#2f3640] tracking-tight">Resolutividad por Dirección Municipal</h3>
+                    <div className="flex-1 w-full mt-6 -ml-4">
+                       <ResponsiveContainer width="100%" height="100%">
+                         <BarChart data={deptData} margin={{ top: 10, right: 10, left: -20, bottom: 20 }} barSize={35}>
+                           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                           <XAxis dataKey="name" fontSize={10} tickLine={false} axisLine={false} tickMargin={10} />
+                           <YAxis fontSize={10} tickLine={false} axisLine={false} />
+                           <Tooltip cursor={{fill: 'rgba(0,0,0,0.05)'}} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}/>
+                           <Bar dataKey="pendientes" fill="#e2e8f0" radius={[4, 4, 0, 0]} />
+                           <Bar dataKey="resueltos" fill="#20c997" radius={[4, 4, 0, 0]} />
+                         </BarChart>
+                       </ResponsiveContainer>
+                    </div>
+                 </div>
+
+              </div>
+
+              {/* Right Column: AI Assistant */}
+              <div className="lg:col-span-4 bg-[#3b3486] rounded-2xl shadow-md border border-[#2b2568] flex flex-col overflow-hidden lg:h-[724px]">
+                 <div className="p-6 flex-1 flex flex-col">
+                   <h2 className="text-xl font-bold text-white flex items-center gap-3">
+                     <span className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-[10px] font-black tracking-widest text-[#d6d2fc]">AI</span> 
+                     Asistente de Estrategia
+                   </h2>
+                   
+                   <div className="mt-8 space-y-4 flex-1">
+                      <div className="bg-white/10 border border-white/5 rounded-xl p-5 shadow-inner">
+                        <p className="text-[13px] text-[#e0deff] leading-relaxed">
+                          <span className="font-bold text-[#b5aeff]">Tendencia Detectada:</span> Se observa un patrón recurrente de reclamos por semáforos en <span className="underline decoration-[#8376ff]">Av. Kennedy</span>. Sugiero derivar cuadrilla preventiva de Obras.
+                        </p>
+                      </div>
+                      <div className="bg-white/10 border border-white/5 rounded-xl p-5 shadow-inner">
+                        <p className="text-[13px] text-[#e0deff] leading-relaxed">
+                          <span className="font-bold text-[#20c997]">Optimización de Procesos:</span> DIDECO ha reducido el tiempo de respuesta en un 15% tras implementar la derivación automática por IA.
+                        </p>
+                      </div>
+
+                      <div className="mt-8 border-t border-white/10 pt-6">
+                         <h4 className="text-[13px] font-bold text-[#d6d2fc]">Métricas IA Semanales</h4>
+                         <div className="mt-4 space-y-2">
+                            <div className="flex justify-between items-center bg-[#2b2568] px-4 py-2.5 rounded-lg border border-white/5">
+                               <span className="text-[10px] font-extrabold text-[#d6d2fc] uppercase tracking-widest">SENTIMIENTO VECINAL</span>
+                               <span className="text-xs font-bold text-[#ff6b6b]">Tenso (62% Negativo)</span>
+                            </div>
+                            <div className="flex justify-between items-center bg-[#2b2568] px-4 py-2.5 rounded-lg border border-white/5">
+                               <span className="text-[10px] font-extrabold text-[#d6d2fc] uppercase tracking-widest">SPAM DETECTADO</span>
+                               <span className="text-xs font-bold text-white">42 tickets</span>
+                            </div>
+                            <div className="flex justify-between items-center bg-[#2b2568] px-4 py-2.5 rounded-lg border border-white/5">
+                               <span className="text-[10px] font-extrabold text-[#d6d2fc] uppercase tracking-widest">PRECISIÓN DERIVACIÓN</span>
+                               <span className="text-xs font-bold text-[#20c997]">92.5%</span>
+                            </div>
+                         </div>
+                      </div>
+                   </div>
+
+                   <div className="grid grid-cols-2 gap-3 mt-8">
+                      <button onClick={() => alert('Generando instrucción manual general desde módulo IA...')} className="bg-[#665dff] hover:bg-[#5b52eb] transition-colors text-white text-[10px] font-black uppercase tracking-widest py-3.5 px-3 rounded-lg text-center shadow">GENERAR INSTRUCCIÓN</button>
+                      <button onClick={() => alert('Mostrando predicciones generativas de tendencia...')} className="bg-[#463da8] hover:bg-[#3f3796] transition-colors text-[#d6d2fc] text-[10px] font-black uppercase tracking-widest py-3.5 px-3 rounded-lg text-center shadow">VER PREDICCIONES</button>
+                   </div>
+                 </div>
+              </div>
+
+            </div>
           </div>
-        )}
-      </main>
+          
+          {/* Footer StatusBar */}
+          <div className="mt-8 border-t border-slate-200 py-3 flex flex-wrap gap-4 text-[10px] font-bold uppercase tracking-widest text-slate-400 justify-between items-center">
+            <div className="flex items-center gap-4">
+              <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> Database: Online</span>
+              <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div> WebSockets: Connected</span>
+            </div>
+            <div>SIGM v2.4.0 (Enterprise) • Node.js Backend • PostgreSQL Live Analytics</div>
+          </div>
+        </main>
     </div>
   );
 }

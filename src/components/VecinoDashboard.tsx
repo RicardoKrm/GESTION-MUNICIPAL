@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Ticket, Vecino } from '../types';
-import { Ticket as TicketIcon, PlusCircle, CheckCircle2, Clock, MapPin, MessageCircle, Send } from 'lucide-react';
+import { Ticket as TicketIcon, PlusCircle, CheckCircle2, Clock, MapPin, MessageCircle, Send, Bell } from 'lucide-react';
 
 export default function VecinoDashboard() {
   const { currentUser, tickets, createTicket, logout } = useStore();
@@ -125,7 +125,7 @@ export default function VecinoDashboard() {
           </div>
           <div>
             <h1 className="text-lg font-bold leading-tight">Portal Ciudadano</h1>
-            <p className="text-[10px] uppercase tracking-wider opacity-60 font-medium">Mi Municipalidad</p>
+            <p className="text-[10px] uppercase tracking-wider opacity-60 font-medium">Gestión Municipal</p>
           </div>
         </div>
         <nav className="flex-1 p-4 space-y-1">
@@ -172,12 +172,16 @@ export default function VecinoDashboard() {
              </div>
           </div>
           <div className="flex items-center gap-3">
+             <div className="relative p-2 rounded-full hover:bg-slate-100 cursor-pointer mr-2">
+               <Bell className="w-5 h-5 text-slate-500" />
+               {myTickets.filter(t => t.estado === 'resuelto' || t.estado === 'cerrado').length > 0 && <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 border-2 border-white rounded-full animate-pulse"></span>}
+             </div>
             <div className="flex items-center gap-2 px-3 py-1 bg-blue-50 border border-blue-100 rounded text-blue-700 text-xs font-medium">
               ClaveÚnica Verificada ✔
             </div>
             <button 
               onClick={logout}
-              className="px-3 py-1.5 rounded-md hover:bg-slate-100 text-slate-600 text-xs font-medium transition-colors"
+              className="px-3 py-1.5 rounded-md hover:bg-slate-100 text-slate-600 text-xs font-medium transition-colors border border-transparent hover:border-slate-200"
             >
               Salir
             </button>
@@ -279,6 +283,18 @@ export default function VecinoDashboard() {
                                 required 
                                 className="min-h-[120px] bg-slate-50 border-slate-200 focus-visible:ring-blue-500"
                               />
+                          </div>
+
+                          <div className="space-y-2">
+                             <Label className="text-xs font-bold text-slate-600 uppercase tracking-tight">Evidencia Fotográfica / PDF (Opcional)</Label>
+                             <div className="border-2 border-dashed border-slate-300 rounded-xl p-6 flex flex-col items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer">
+                               <div className="w-10 h-10 bg-white rounded-full shadow-sm flex items-center justify-center mb-2">
+                                 <PlusCircle className="w-5 h-5 text-slate-400" />
+                               </div>
+                               <p className="text-sm font-medium text-slate-600">Haz clic para subir archivos o arrastra y suelta</p>
+                               <p className="text-[10px] text-slate-400 mt-1">Soporta JPG, PNG, PDF (Máx 10MB)</p>
+                               <input type="file" className="hidden" accept="image/*,.pdf" multiple />
+                             </div>
                           </div>
 
                           <div className="p-4 bg-blue-50/50 border border-blue-100 rounded-xl text-xs text-blue-800 space-y-2">
